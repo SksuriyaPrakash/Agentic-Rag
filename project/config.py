@@ -1,34 +1,33 @@
-# config.py
-"""
-Central configuration file for all constants and settings.
-"""
-
 import os
 
 # --- Directory Configuration ---
-DOCS_DIR = "docs"
-PARENT_STORE_PATH = "parent_store"
-QDRANT_DB_PATH = "qdrant_db"
+_BASE_DIR = os.path.dirname(__file__)
+
+MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
+PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
+QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
 
 # --- Qdrant Configuration ---
 CHILD_COLLECTION = "document_child_chunks"
-SPARSE_VECTOR_NAME = "sparse"  # Name to use for sparse vectors in Qdrant
+SPARSE_VECTOR_NAME = "sparse"
 
 # --- Model Configuration ---
-# Dense Embeddings (for semantic understanding)
 DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
-# Sparse Embeddings (for keyword matching)
 SPARSE_MODEL = "Qdrant/bm25"
-# LLM (Example with Ollama)
 LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
-LLM_TEMPERATURE = 0.1
-# For Google Gemini (uncomment if needed)
-# os.environ["GOOGLE_API_KEY"] = "your-api-key-here"
-# GEMINI_MODEL = "gemini-2.0-flash-exp"
+LLM_TEMPERATURE = 0
+
+# --- Agent Configuration ---
+MAX_TOOL_CALLS = 8
+MAX_ITERATIONS = 10
+BASE_TOKEN_THRESHOLD = 2000
+TOKEN_GROWTH_FACTOR = 0.9
 
 # --- Text Splitter Configuration ---
 CHILD_CHUNK_SIZE = 500
 CHILD_CHUNK_OVERLAP = 100
+MIN_PARENT_SIZE = 2000
+MAX_PARENT_SIZE = 4000
 HEADERS_TO_SPLIT_ON = [
     ("#", "H1"),
     ("##", "H2"),
