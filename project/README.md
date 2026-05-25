@@ -5,7 +5,7 @@ An **Agentic Retrieval-Augmented Generation (RAG)** system built with **LangGrap
 
 ## Table of Contents
 
-[Quick Start](#quick-start) | [Architecture Overview](#architecture-overview) | [Project Structure](#project-structure) | [Configuration Guide](#configuration-guide) | [Common Customizations](#common-customizations) | [Advanced Topics](#advanced-topics) | [Troubleshooting](#troubleshooting)
+[Quick Start](#quick-start) | [Architecture Overview](#architecture-overview) | [Project Structure](#project-structure) | [Configuration Guide](#configuration-guide) | [Common Customizations](#common-customizations) | [Observability](#observability) | [Advanced Topics](#advanced-topics) | [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -31,7 +31,7 @@ The application will be available at `http://localhost:7860` (default Gradio por
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Ollama (local) or API keys for OpenAI, Anthropic, or Google
 
 ---
@@ -73,6 +73,7 @@ PDF → Markdown Conversion → Parent/Child Chunking → Vector Indexing → Ag
 | `project/core/rag_system.py` | System bootstrap - creates managers and compiles LangGraph agent |
 | `project/core/document_manager.py` | Document ingestion pipeline (convert, chunk, index) |
 | `project/core/chat_interface.py` | Thin wrapper for agent graph interaction |
+| `project/core/observability.py` | Optional Langfuse tracing — callback handler lifecycle |
 
 ### Database Layer
 
@@ -136,6 +137,7 @@ LLM_TEMPERATURE = 0  # 0 = deterministic, 1 = creative
 # Hard limits to prevent infinite loops
 MAX_TOOL_CALLS = 8       # Maximum tool calls per agent run
 MAX_ITERATIONS = 10      # Maximum agent loop iterations
+GRAPH_RECURSION_LIMIT = 50 # Maximum number of steps before hitting a stop condition
 
 # Context compression thresholds
 BASE_TOKEN_THRESHOLD = 2000     # Initial token threshold for compression
@@ -156,6 +158,15 @@ HEADERS_TO_SPLIT_ON = [
     ("##", "H2"),
     ("###", "H3")
 ]
+```
+
+### Langfuse Observability (Optional)
+
+```python
+LANGFUSE_ENABLED = False               # Set to True via LANGFUSE_ENABLED env var
+LANGFUSE_PUBLIC_KEY = ""               # From your Langfuse project settings
+LANGFUSE_SECRET_KEY = ""               # From your Langfuse project settings
+LANGFUSE_BASE_URL = "http://localhost:3000"  # Langfuse Cloud or self-hosted URL
 ```
 
 ---
@@ -361,6 +372,8 @@ self.__sparse_embeddings = FastEmbedSparse(model_name=config.SPARSE_MODEL)
 
 **Why adjust?** Balance between retrieval precision and context richness.
 
+> **💡 Validation Tool:** To avoid trial-and-error, you can use 🐿️[**Chunky**](https://github.com/GiovanniPasq/chunky) to visually inspect how different strategies affect your documents.
+
 **Step 1:** Update chunk sizes in `project/config.py`
 
 ```python
@@ -427,6 +440,7 @@ Tune agent behavior in `project/config.py`:
 # Hard limits to prevent infinite loops
 MAX_TOOL_CALLS = 8       # Maximum tool calls per agent run
 MAX_ITERATIONS = 10      # Maximum agent loop iterations
+GRAPH_RECURSION_LIMIT = 50 # Maximum number of steps before hitting a stop condition
 
 # Context compression thresholds
 BASE_TOKEN_THRESHOLD = 2000     # Initial token threshold for compression
@@ -437,8 +451,51 @@ TOKEN_GROWTH_FACTOR = 0.9       # Multiplier applied after each compression
 |-----------|--------|
 | `MAX_TOOL_CALLS` | Increase for complex queries, decrease to speed up simple ones |
 | `MAX_ITERATIONS` | Controls how many reasoning loops the agent can run |
+| `GRAPH_RECURSION_LIMIT` | Increase for complex [graphs](https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT) |
 | `BASE_TOKEN_THRESHOLD` | Delay compression by increasing this value |
 | `TOKEN_GROWTH_FACTOR` | Lower values compress more aggressively |
+
+---
+
+## Observability
+
+Optional tracing with [Langfuse](https://langfuse.com) captures every LLM call, tool invocation, and graph transition  useful for debugging agent behavior, tracking costs, and evaluating retrieval quality.
+
+### Enabling Langfuse
+
+1. Sign up on [Langfuse Cloud](https://cloud.langfuse.com/), create an organization, then create a project and generate API keys from the project settings.
+2. Set environment variables (or copy `.env.example` to `.env`):
+
+```bash
+export LANGFUSE_ENABLED=true
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+export LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
+```
+
+4. Run the app normally. Traces appear in your [Langfuse dashboard](https://cloud.langfuse.com/).
+
+To disable tracing, set `LANGFUSE_ENABLED=false` or leave the variables unset. The application runs identically either way.
+
+For additional details on integrating Langfuse with LangChain or LangGraph, see the official [documentation](https://docs.langchain.com/oss/python/integrations/providers/langfuse).
+
+### What gets traced
+
+| Component | Traced operations |
+|-----------|-------------------|
+| Graph nodes | `summarize_history`, `rewrite_query`, `orchestrator`, `compress_context`, `fallback_response`, `aggregate_answers` |
+| Tools | `search_child_chunks`, `retrieve_parent_chunks` (arguments + results) |
+| Structured output | `QueryAnalysis` parsing in the rewrite step |
+| Subgraph fan-out | Parallel agent invocations via `Send()` |
+
+### Hosting options
+
+- **Langfuse Cloud** — sign up at [cloud.langfuse.com](https://cloud.langfuse.com), free up to 50K observations/month.
+- **Self-hosted** — MIT-licensed, deploy with Docker Compose. See the [official self-hosting docs](https://langfuse.com/self-hosting).
+
+For a detailed comparison of observability platforms (LangSmith, Arize Phoenix, AgentOps, Braintrust, Helicone) and the full self-hosting setup, see [`Observability_Guide.ipynb`](../Observability_Guide.ipynb).
+
+---
 
 ## Advanced Topics
 
@@ -536,15 +593,6 @@ docker rm -f rag-assistant     # Remove
 > ⚠️ **Performance Note**: On Windows/Mac, Docker runs via a Linux VM which may slow down I/O operations like document indexing. LLM inference speed is largely unaffected. On Linux, performance is comparable to running locally.
 
 Once running, open `http://localhost:7860`.
-
-### Performance Optimization
-
-**Tips:**
-- Use GPU-enabled embeddings for large document sets
-- Implement caching for frequently retrieved chunks
-- Tune `top_k` retrieval parameters in tools.py
-- Consider async processing for multi-document ingestion
-- Monitor Qdrant memory usage and tune collection parameters
 
 ---
 
